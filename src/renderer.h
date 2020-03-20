@@ -1,19 +1,18 @@
 #pragma once
 
 #include "dx12_labs.h"
-
 #include "win32_window.h"
 
-class Renderer
-{
+
+class Renderer {
 public:
-	Renderer(UINT width, UINT height) : width(width), height(height), title(L"DX12 renderer"), frame_index(0), rtv_descriptor_size(0)
-	{
+	Renderer(UINT width, UINT height) : width(width), height(height), title(L"DX12 renderer"), frame_index(0), rtv_descriptor_size(0) {
 		view_port = CD3DX12_VIEWPORT(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
 		scissor_rect = CD3DX12_RECT(0, 0, static_cast<LONG>(width), static_cast<LONG>(height));
 		vertex_buffer_view = {};
 		fence_value = 0;
 		fence_event = nullptr;
+		aspectRatio = static_cast<float>(width) / static_cast<float>(height);
 	};
 	virtual ~Renderer() {};
 
@@ -27,7 +26,7 @@ public:
 
 	UINT GetWidth() const { return width; }
 	UINT GetHeight() const { return height; }
-	const WCHAR* GetTitle() const { return title.c_str(); }
+	const WCHAR *GetTitle() const { return title.c_str(); }
 
 protected:
 	UINT width;
@@ -60,6 +59,8 @@ protected:
 	HANDLE fence_event;
 	ComPtr<ID3D12Fence> fence;
 	UINT64 fence_value;
+
+	float aspectRatio;
 
 	void LoadPipeline();
 	void LoadAssets();
