@@ -7,3 +7,6 @@ results/
 *.sln
 *.vcxproj
 *.vcxproj.user
+*.vcxproj.filters
+
+premake5.exe
