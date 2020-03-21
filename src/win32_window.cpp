@@ -53,7 +53,8 @@ LRESULT Win32Window::WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
 	switch (message) {
 		case WM_CREATE:
 			// Save the Renderer* passed in to CreateWindow.
-			LPCREATESTRUCT pCreateStruct = reinterpret_cast<LPCREATESTRUCT>(lParam);
+			LPCREATESTRUCT pCreateStruct;
+			pCreateStruct = reinterpret_cast<LPCREATESTRUCT>(lParam);
 			SetWindowLongPtr(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pCreateStruct->lpCreateParams));
 			return 0;
 

@@ -85,6 +85,10 @@ void Renderer::LoadPipeline() {
 	for (unsigned int i = 0; i < frame_number; i++) {
 		ThrowIfFailed(swap_chain->GetBuffer(i, IID_PPV_ARGS(&render_targets[i])));
 		device->CreateRenderTargetView(render_targets[i].Get(), nullptr, rtvHandle);
+		std::wstring rtName = L"Render target #";
+		rtName += std::to_wstring(i);
+		OutputDebugString(rtName.c_str());
+		render_targets[i]->SetName(L"Render target");
 		rtvHandle.Offset(1, rtv_descriptor_size);
 	}
 
@@ -145,38 +149,101 @@ void Renderer::LoadAssets() {
 	ThrowIfFailed(command_list->Close());
 
 	// Create and upload vertex buffer
-	ColorVertex triangleVertices[] = {
-		{{0.0f, 0.25f * aspectRatio, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
-		{{0.25f, -0.25f * aspectRatio, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
-		{{-0.25f, -0.25f * aspectRatio, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}}
-	};
+	std::wstring objDir = GetBinPath(std::wstring());
+	std::string objPath(objDir.begin(), objDir.end());
+	std::string inputfile = objPath + "CornellBox-Original.obj";
+	tinyobj::attrib_t attrib;
+	std::vector<tinyobj::shape_t> shapes;
+	std::vector<tinyobj::material_t> materials;
 
-	const UINT vertexBufferSize = sizeof(triangleVertices);
-	ThrowIfFailed(device->CreateCommittedResource(&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-												  D3D12_HEAP_FLAG_NONE,
-												  &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
-												  D3D12_RESOURCE_STATE_GENERIC_READ,
-												  nullptr,
-												  IID_PPV_ARGS(&vertex_buffer)
-												  ));
+	std::string warn;
+	std::string err;
 
-	UINT8 *vertexDataBegin;
-	CD3DX12_RANGE readRange(0, 0);
-	ThrowIfFailed(vertex_buffer->Map(0, &readRange, reinterpret_cast<void **>(&vertexDataBegin)));
-	memcpy(vertexDataBegin, triangleVertices, vertexBufferSize);
-	vertex_buffer->Unmap(0, nullptr);
+	bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, inputfile.c_str());
 
-	vertex_buffer_view.BufferLocation = vertex_buffer->GetGPUVirtualAddress();
-	vertex_buffer_view.StrideInBytes = sizeof(ColorVertex);
-	vertex_buffer_view.SizeInBytes = vertexBufferSize;
-
-	// Create synchronization objects
-	ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
-	fence_value = 1;
-	fence_event = CreateEvent(nullptr, false, false, nullptr);
-	if (fence_event == nullptr) {
-		ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()));
+	if (!warn.empty()) {
+		std::wstring wwarn(warn.begin(), warn.end());
+		wwarn = L"Tinyobjloader warning: " + wwarn + L'\n';
+		OutputDebugString(wwarn.c_str());
 	}
+
+	if (!err.empty()) {
+		std::wstring werr(err.begin(), err.end());
+		werr = L"Tinyobjloader error: " + werr + L'\n';
+		OutputDebugString(werr.c_str());
+	}
+
+	if (!ret) {
+		ThrowIfFailed(-1);
+	}
+
+	// Loop over shapes
+	std::vector<ColorVertex> colorVertices;
+	for (size_t s = 0; s < shapes.size(); s++) {
+		// Loop over faces(polygon)
+		size_t index_offset = 0;
+		for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
+			int fv = shapes[s].mesh.num_face_vertices[f];
+
+			// per-face material
+			int material_ids = shapes[s].mesh.material_ids[f];
+
+			// Loop over vertices in the face.
+			for (size_t v = 0; v < fv; v++) {
+				// access to vertex
+				tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
+				tinyobj::real_t vx = attrib.vertices[3 * idx.vertex_index + 0];
+				tinyobj::real_t vy = attrib.vertices[3 * idx.vertex_index + 1];
+				tinyobj::real_t vz = attrib.vertices[3 * idx.vertex_index + 2];
+				// materials[material_ids].diffuse;
+				ColorVertex colorVertex = {
+					{vx, vy, vz},
+					{
+					materials[material_ids].diffuse[0],
+					materials[material_ids].diffuse[1],
+					materials[material_ids].diffuse[2],
+					1.0f
+					}
+				};
+				colorVertices.push_back(colorVertex);
+			}
+		
+		index_offset += fv;
+	}
+}
+
+ColorVertex triangleVertices[] = {
+	{{0.0f, 0.25f * aspectRatio, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+	{{0.25f, -0.25f * aspectRatio, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+	{{-0.25f, -0.25f * aspectRatio, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}}
+};
+
+const UINT vertexBufferSize = sizeof(triangleVertices);
+ThrowIfFailed(device->CreateCommittedResource(&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+											  D3D12_HEAP_FLAG_NONE,
+											  &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
+											  D3D12_RESOURCE_STATE_GENERIC_READ,
+											  nullptr,
+											  IID_PPV_ARGS(&vertex_buffer)
+											  ));
+
+UINT8 *vertexDataBegin;
+CD3DX12_RANGE readRange(0, 0);
+ThrowIfFailed(vertex_buffer->Map(0, &readRange, reinterpret_cast<void **>(&vertexDataBegin)));
+memcpy(vertexDataBegin, triangleVertices, vertexBufferSize);
+vertex_buffer->Unmap(0, nullptr);
+
+vertex_buffer_view.BufferLocation = vertex_buffer->GetGPUVirtualAddress();
+vertex_buffer_view.StrideInBytes = sizeof(ColorVertex);
+vertex_buffer_view.SizeInBytes = vertexBufferSize;
+
+// Create synchronization objects
+ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
+fence_value = 1;
+fence_event = CreateEvent(nullptr, false, false, nullptr);
+if (fence_event == nullptr) {
+	ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()));
+}
 }
 
 void Renderer::PopulateCommandList() {
@@ -199,7 +266,7 @@ void Renderer::PopulateCommandList() {
 	// Record commands
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtv_heap->GetCPUDescriptorHandleForHeapStart(), frame_index, rtv_descriptor_size);
 	command_list->OMSetRenderTargets(1, &rtvHandle, false, nullptr);
-	const float clearColor[] = {1.0f, 0.0f, 0.0f, 1.0f};
+	const float clearColor[] = {0.0f, 0.0f, 0.0f, 1.0f};
 	command_list->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
 	command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	command_list->IASetVertexBuffers(0, 1, &vertex_buffer_view);
