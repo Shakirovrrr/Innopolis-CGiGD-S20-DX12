@@ -13,6 +13,24 @@ public:
 		fence_value = 0;
 		fence_event = nullptr;
 		aspectRatio = static_cast<float>(width) / static_cast<float>(height);
+		colorVertices.clear();
+
+		deltaRotation = 0.0f;
+		deltaForward = 0.0f;
+		deltaZ = 0.0f;
+		deltaA = 0.0f;
+		angle = 0.0f;
+
+		eyePos = XMVectorZero();
+		world = XMMatrixScaling(0.5f, 0.5f, 0.5f);
+	
+		upDir = {0.0f, 1.0f, 0.0f};
+		lookAt = eyePos + XMVECTOR({sinf(angle), 0.0f, cosf(angle)});
+
+		view = XMMatrixLookAtLH(eyePos, lookAt, upDir);
+		projection = XMMatrixPerspectiveFovLH(60.0f / 180.0f * XM_PI, aspectRatio, 0.1f, 100.0f);
+
+		worldProj = XMMatrixIdentity();
 	};
 	virtual ~Renderer() {};
 
@@ -21,8 +39,8 @@ public:
 	virtual void OnRender();
 	virtual void OnDestroy();
 
-	virtual void OnKeyDown(UINT8 key) {};
-	virtual void OnKeyUp(UINT8 key) {};
+	virtual void OnKeyDown(UINT8 key);
+	virtual void OnKeyUp(UINT8 key);
 
 	UINT GetWidth() const { return width; }
 	UINT GetHeight() const { return height; }
@@ -32,6 +50,9 @@ protected:
 	UINT width;
 	UINT height;
 	std::wstring title;
+
+	XMVECTOR eyePos;
+	float deltaRotation, deltaForward, deltaZ, deltaA;
 
 	static const UINT frame_number = 2;
 
@@ -53,6 +74,15 @@ protected:
 	// Resources
 	ComPtr<ID3D12Resource> vertex_buffer;
 	D3D12_VERTEX_BUFFER_VIEW vertex_buffer_view;
+	std::vector<ColorVertex> colorVertices;
+
+	XMMATRIX worldProj;
+	XMMATRIX projection, view, world;
+	XMVECTOR upDir, lookAt;
+
+	ComPtr<ID3D12Resource> constantBuffer;
+	ComPtr<ID3D12DescriptorHeap> cbvHeap;
+	UINT8 *cbvDataBegin;
 
 	// Synchronization objects.
 	UINT frame_index;
@@ -61,6 +91,7 @@ protected:
 	UINT64 fence_value;
 
 	float aspectRatio;
+	float angle;
 
 	void LoadPipeline();
 	void LoadAssets();

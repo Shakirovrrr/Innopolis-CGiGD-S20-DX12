@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "renderer.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -8,7 +9,52 @@ void Renderer::OnInit() {
 	LoadAssets();
 }
 
-void Renderer::OnUpdate() {}
+void Renderer::OnUpdate() {
+	angle += deltaRotation;
+	eyePos += XMVECTOR({sinf(angle), 0.0f, cosf(angle)}) * deltaForward;
+	view = XMMatrixLookAtLH(eyePos, lookAt, upDir);
+	worldProj = projection * view * world;
+
+	memcpy(cbvDataBegin, &worldProj, sizeof(worldProj));
+}
+
+void Renderer::OnKeyDown(UINT8 key) {
+	switch (key) {
+		case 0x41 - 'a' + 'd':
+			deltaRotation = 0.0001f;
+			break;
+		case 0x41 - 'a' + 'a':
+			deltaRotation = -0.0001f;
+			break;
+		case 0x41 - 'a' + 'w':
+			deltaForward = 0.0001f;
+			break;
+		case 0x41 - 'a' + 's':
+			deltaForward = -0.0001f;
+			break;
+		default:
+			break;
+	}
+}
+
+void Renderer::OnKeyUp(UINT8 key) {
+	switch (key) {
+		case VK_RIGHT:
+			deltaRotation = 0.0f;
+			break;
+		case VK_LEFT:
+			deltaRotation = 0.0f;
+			break;
+		case VK_UP:
+			deltaForward = 0.0f;
+			break;
+		case VK_DOWN:
+			deltaForward = 0.0f;
+			break;
+		default:
+			break;
+	}
+}
 
 void Renderer::OnRender() {
 	PopulateCommandList();
@@ -80,6 +126,13 @@ void Renderer::LoadPipeline() {
 	ThrowIfFailed(device->CreateDescriptorHeap(&rtvHeapDescriptor, IID_PPV_ARGS(&rtv_heap)));
 	rtv_descriptor_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
+	// Create constant buffer
+	D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDescriptor = {};
+	cbvHeapDescriptor.NumDescriptors = 1;
+	cbvHeapDescriptor.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+	cbvHeapDescriptor.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	ThrowIfFailed(device->CreateDescriptorHeap(&cbvHeapDescriptor, IID_PPV_ARGS(&cbvHeap)));
+
 	// Create render target view for each frame
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtv_heap->GetCPUDescriptorHandleForHeapStart());
 	for (unsigned int i = 0; i < frame_number; i++) {
@@ -98,14 +151,36 @@ void Renderer::LoadPipeline() {
 
 void Renderer::LoadAssets() {
 	// Create a root signature
-	CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDescriptor = {};
+
+	D3D12_FEATURE_DATA_ROOT_SIGNATURE rsFeatureData = {};
+	rsFeatureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+	if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &rsFeatureData, sizeof(rsFeatureData)))) {
+		rsFeatureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+	}
+
+	CD3DX12_DESCRIPTOR_RANGE1 ranges[1];
+	CD3DX12_ROOT_PARAMETER1 rootParams[1];
+
+	ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+	rootParams[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_VERTEX);
+
+	D3D12_ROOT_SIGNATURE_FLAGS rsFlags =
+		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
+		| D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS
+		| D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS
+		| D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS
+		| D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
+
+	CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDescriptor;
+	rootSignatureDescriptor.Init_1_1(_countof(rootParams), rootParams, 0, nullptr, rsFlags);
+
+	/*CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDescriptor = {};
 	rootSignatureDescriptor.Init(0, nullptr, 0, nullptr,
-								 D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+								 D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);*/
 
 	ComPtr<ID3D10Blob> signature;
 	ComPtr<ID3D10Blob> error;
-	ThrowIfFailed(D3D12SerializeRootSignature(&rootSignatureDescriptor,
-											  D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error));
+	ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDescriptor, rsFeatureData.HighestVersion, &signature, &error));
 	ThrowIfFailed(device->CreateRootSignature(0, signature->GetBufferPointer(),
 											  signature->GetBufferSize(), IID_PPV_ARGS(&root_signature)));
 
@@ -133,6 +208,8 @@ void Renderer::LoadAssets() {
 	psoDescriptor.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
 	psoDescriptor.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
 	psoDescriptor.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	psoDescriptor.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	psoDescriptor.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 	psoDescriptor.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	psoDescriptor.DepthStencilState.DepthEnable = false;
 	psoDescriptor.DepthStencilState.StencilEnable = false;
@@ -178,7 +255,6 @@ void Renderer::LoadAssets() {
 	}
 
 	// Loop over shapes
-	std::vector<ColorVertex> colorVertices;
 	for (size_t s = 0; s < shapes.size(); s++) {
 		// Loop over faces(polygon)
 		size_t index_offset = 0;
@@ -195,7 +271,7 @@ void Renderer::LoadAssets() {
 				tinyobj::real_t vx = attrib.vertices[3 * idx.vertex_index + 0];
 				tinyobj::real_t vy = attrib.vertices[3 * idx.vertex_index + 1];
 				tinyobj::real_t vz = attrib.vertices[3 * idx.vertex_index + 2];
-				// materials[material_ids].diffuse;
+				materials[material_ids].diffuse;
 				ColorVertex colorVertex = {
 					{vx, vy, vz},
 					{
@@ -207,43 +283,62 @@ void Renderer::LoadAssets() {
 				};
 				colorVertices.push_back(colorVertex);
 			}
-		
-		index_offset += fv;
+
+			index_offset += fv;
+		}
 	}
-}
 
-ColorVertex triangleVertices[] = {
-	{{0.0f, 0.25f * aspectRatio, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
-	{{0.25f, -0.25f * aspectRatio, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
-	{{-0.25f, -0.25f * aspectRatio, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}}
-};
+	ColorVertex triangleVertices[] = {
+		{{0.0f, 0.25f * aspectRatio, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+		{{0.25f, -0.25f * aspectRatio, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+		{{-0.25f, -0.25f * aspectRatio, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}}
+	};
 
-const UINT vertexBufferSize = sizeof(triangleVertices);
-ThrowIfFailed(device->CreateCommittedResource(&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-											  D3D12_HEAP_FLAG_NONE,
-											  &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
-											  D3D12_RESOURCE_STATE_GENERIC_READ,
-											  nullptr,
-											  IID_PPV_ARGS(&vertex_buffer)
-											  ));
+	const UINT vertexBufferSize = sizeof(ColorVertex) * colorVertices.size();
+	ThrowIfFailed(device->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
+		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&vertex_buffer)
+		));
 
-UINT8 *vertexDataBegin;
-CD3DX12_RANGE readRange(0, 0);
-ThrowIfFailed(vertex_buffer->Map(0, &readRange, reinterpret_cast<void **>(&vertexDataBegin)));
-memcpy(vertexDataBegin, triangleVertices, vertexBufferSize);
-vertex_buffer->Unmap(0, nullptr);
+	UINT8 *vertexDataBegin;
+	CD3DX12_RANGE readRange(0, 0);
+	ThrowIfFailed(vertex_buffer->Map(0, &readRange, reinterpret_cast<void **>(&vertexDataBegin)));
+	memcpy(vertexDataBegin, colorVertices.data(), vertexBufferSize);
+	vertex_buffer->Unmap(0, nullptr);
 
-vertex_buffer_view.BufferLocation = vertex_buffer->GetGPUVirtualAddress();
-vertex_buffer_view.StrideInBytes = sizeof(ColorVertex);
-vertex_buffer_view.SizeInBytes = vertexBufferSize;
+	vertex_buffer_view.BufferLocation = vertex_buffer->GetGPUVirtualAddress();
+	vertex_buffer_view.StrideInBytes = sizeof(ColorVertex);
+	vertex_buffer_view.SizeInBytes = vertexBufferSize;
 
-// Create synchronization objects
-ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
-fence_value = 1;
-fence_event = CreateEvent(nullptr, false, false, nullptr);
-if (fence_event == nullptr) {
-	ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()));
-}
+	// Init constant buffer
+	ThrowIfFailed(device->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(1024 * 64),
+		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&constantBuffer)
+		));
+
+	D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDescriptor = {};
+	cbvDescriptor.BufferLocation = constantBuffer->GetGPUVirtualAddress();
+	cbvDescriptor.SizeInBytes = (sizeof(worldProj) + 255) & ~255;
+	device->CreateConstantBufferView(&cbvDescriptor, cbvHeap->GetCPUDescriptorHandleForHeapStart());
+
+	ThrowIfFailed(constantBuffer->Map(0, &readRange, reinterpret_cast<void **>(&cbvDataBegin)));
+	memcpy(cbvDataBegin, &worldProj, sizeof(worldProj));
+
+	// Create synchronization objects
+	ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
+	fence_value = 1;
+	fence_event = CreateEvent(nullptr, false, false, nullptr);
+	if (fence_event == nullptr) {
+		ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()));
+	}
 }
 
 void Renderer::PopulateCommandList() {
@@ -253,6 +348,9 @@ void Renderer::PopulateCommandList() {
 
 	// Set initial state
 	command_list->SetGraphicsRootSignature(root_signature.Get());
+	ID3D12DescriptorHeap *heaps[] = {cbvHeap.Get()};
+	command_list->SetDescriptorHeaps(_countof(heaps), heaps);
+	command_list->SetGraphicsRootDescriptorTable(0, cbvHeap->GetGPUDescriptorHandleForHeapStart());
 	command_list->RSSetViewports(1, &view_port);
 	command_list->RSSetScissorRects(1, &scissor_rect);
 
@@ -270,7 +368,7 @@ void Renderer::PopulateCommandList() {
 	command_list->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
 	command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	command_list->IASetVertexBuffers(0, 1, &vertex_buffer_view);
-	command_list->DrawInstanced(3, 1, 0, 0);
+	command_list->DrawInstanced(colorVertices.size(), 1, 0, 0);
 
 	// Resource barrier from RT to present
 	command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
