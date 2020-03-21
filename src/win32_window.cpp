@@ -1,3 +1,5 @@
+#include "pch.h"
+
 #include "win32_window.h"
 
 HWND Win32Window::hwnd = nullptr;
