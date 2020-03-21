@@ -3,6 +3,7 @@
 bin/
 obj/
 results/
+libs/
 
 *.sln
 *.vcxproj
