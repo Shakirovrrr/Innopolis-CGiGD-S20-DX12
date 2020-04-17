@@ -21,16 +21,13 @@ public:
 		deltaA = 0.0f;
 		angle = 0.0f;
 
-		eyePos = XMVectorZero();
-		world = XMMatrixScaling(0.5f, 0.5f, 0.5f);
-	
+		worldViewProj = XMMatrixIdentity();
+		world = XMMatrixTranslation(0, 0, 0) * XMMatrixScaling(1, 1, 1);
+		view = XMMatrixIdentity();
+		eyePos = XMVECTOR({0, 1, -5});
+		projection = XMMatrixPerspectiveFovLH(60.0f / 180.0f * XM_PI, aspectRatio, 0.001f, 100.0f);
 		upDir = {0.0f, 1.0f, 0.0f};
 		lookAt = eyePos + XMVECTOR({sinf(angle), 0.0f, cosf(angle)});
-
-		view = XMMatrixLookAtLH(eyePos, lookAt, upDir);
-		projection = XMMatrixPerspectiveFovLH(60.0f / 180.0f * XM_PI, aspectRatio, 0.1f, 100.0f);
-
-		worldProj = XMMatrixIdentity();
 	};
 	virtual ~Renderer() {};
 
@@ -76,7 +73,7 @@ protected:
 	D3D12_VERTEX_BUFFER_VIEW vertex_buffer_view;
 	std::vector<ColorVertex> colorVertices;
 
-	XMMATRIX worldProj;
+	XMMATRIX worldViewProj;
 	XMMATRIX projection, view, world;
 	XMVECTOR upDir, lookAt;
 

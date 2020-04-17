@@ -12,48 +12,18 @@ void Renderer::OnInit() {
 void Renderer::OnUpdate() {
 	angle += deltaRotation;
 	eyePos += XMVECTOR({sinf(angle), 0.0f, cosf(angle)}) * deltaForward;
+
+	lookAt = eyePos + XMVECTOR({sinf(angle), 0.0f, cosf(angle)});
 	view = XMMatrixLookAtLH(eyePos, lookAt, upDir);
-	worldProj = projection * view * world;
 
-	memcpy(cbvDataBegin, &worldProj, sizeof(worldProj));
-}
+	worldViewProj = projection * view * world;
+	worldViewProj = XMMatrixTranspose(
+		XMMatrixTranspose(projection) *
+		XMMatrixTranspose(view) *
+		XMMatrixTranspose(world)
+	);
 
-void Renderer::OnKeyDown(UINT8 key) {
-	switch (key) {
-		case 0x41 - 'a' + 'd':
-			deltaRotation = 0.0001f;
-			break;
-		case 0x41 - 'a' + 'a':
-			deltaRotation = -0.0001f;
-			break;
-		case 0x41 - 'a' + 'w':
-			deltaForward = 0.0001f;
-			break;
-		case 0x41 - 'a' + 's':
-			deltaForward = -0.0001f;
-			break;
-		default:
-			break;
-	}
-}
-
-void Renderer::OnKeyUp(UINT8 key) {
-	switch (key) {
-		case VK_RIGHT:
-			deltaRotation = 0.0f;
-			break;
-		case VK_LEFT:
-			deltaRotation = 0.0f;
-			break;
-		case VK_UP:
-			deltaForward = 0.0f;
-			break;
-		case VK_DOWN:
-			deltaForward = 0.0f;
-			break;
-		default:
-			break;
-	}
+	memcpy(cbvDataBegin, &worldViewProj, sizeof(worldViewProj));
 }
 
 void Renderer::OnRender() {
@@ -67,6 +37,44 @@ void Renderer::OnRender() {
 void Renderer::OnDestroy() {
 	WaitForPreviousFrame();
 	CloseHandle(fence_event);
+}
+
+void Renderer::OnKeyDown(UINT8 key) {
+	switch (key) {
+		case 0x41 - 'a' + 'd':
+			deltaRotation = 0.001f;
+			break;
+		case 0x41 - 'a' + 'a':
+			deltaRotation = -0.001f;
+			break;
+		case 0x41 - 'a' + 'w':
+			deltaForward = 0.001f;
+			break;
+		case 0x41 - 'a' + 's':
+			deltaForward = -0.001f;
+			break;
+		default:
+			break;
+	}
+}
+
+void Renderer::OnKeyUp(UINT8 key) {
+	switch (key) {
+		case 0x41 - 'a' + 'd':
+			deltaRotation = 0.0f;
+			break;
+		case 0x41 - 'a' + 'a':
+			deltaRotation = 0.0f;
+			break;
+		case 0x41 - 'a' + 'w':
+			deltaForward = 0.0f;
+			break;
+		case 0x41 - 'a' + 's':
+			deltaForward = 0.0f;
+			break;
+		default:
+			break;
+	}
 }
 
 void Renderer::LoadPipeline() {
@@ -111,8 +119,7 @@ void Renderer::LoadPipeline() {
 		&swapChainDescriptor,
 		nullptr, nullptr,
 		&tempSwapChain
-		));
-
+	));
 	ThrowIfFailed(dxgiFactory->MakeWindowAssociation(Win32Window::GetHwnd(), DXGI_MWA_NO_ALT_ENTER));
 	ThrowIfFailed(tempSwapChain.As(&swap_chain));
 
@@ -182,7 +189,7 @@ void Renderer::LoadAssets() {
 	ComPtr<ID3D10Blob> error;
 	ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDescriptor, rsFeatureData.HighestVersion, &signature, &error));
 	ThrowIfFailed(device->CreateRootSignature(0, signature->GetBufferPointer(),
-											  signature->GetBufferSize(), IID_PPV_ARGS(&root_signature)));
+		signature->GetBufferSize(), IID_PPV_ARGS(&root_signature)));
 
 	// Create full PSO
 	ComPtr<ID3D10Blob> vertexShader;
@@ -302,7 +309,7 @@ void Renderer::LoadAssets() {
 		D3D12_RESOURCE_STATE_GENERIC_READ,
 		nullptr,
 		IID_PPV_ARGS(&vertex_buffer)
-		));
+	));
 
 	UINT8 *vertexDataBegin;
 	CD3DX12_RANGE readRange(0, 0);
@@ -322,15 +329,15 @@ void Renderer::LoadAssets() {
 		D3D12_RESOURCE_STATE_GENERIC_READ,
 		nullptr,
 		IID_PPV_ARGS(&constantBuffer)
-		));
+	));
 
 	D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDescriptor = {};
 	cbvDescriptor.BufferLocation = constantBuffer->GetGPUVirtualAddress();
-	cbvDescriptor.SizeInBytes = (sizeof(worldProj) + 255) & ~255;
+	cbvDescriptor.SizeInBytes = (sizeof(worldViewProj) + 255) & ~255;
 	device->CreateConstantBufferView(&cbvDescriptor, cbvHeap->GetCPUDescriptorHandleForHeapStart());
 
 	ThrowIfFailed(constantBuffer->Map(0, &readRange, reinterpret_cast<void **>(&cbvDataBegin)));
-	memcpy(cbvDataBegin, &worldProj, sizeof(worldProj));
+	memcpy(cbvDataBegin, &worldViewProj, sizeof(worldViewProj));
 
 	// Create synchronization objects
 	ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
@@ -359,7 +366,7 @@ void Renderer::PopulateCommandList() {
 		render_targets[frame_index].Get(),
 		D3D12_RESOURCE_STATE_PRESENT,
 		D3D12_RESOURCE_STATE_RENDER_TARGET
-		));
+	));
 
 	// Record commands
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtv_heap->GetCPUDescriptorHandleForHeapStart(), frame_index, rtv_descriptor_size);
@@ -375,7 +382,7 @@ void Renderer::PopulateCommandList() {
 		render_targets[frame_index].Get(),
 		D3D12_RESOURCE_STATE_RENDER_TARGET,
 		D3D12_RESOURCE_STATE_PRESENT
-		));
+	));
 
 	// Close command list
 	ThrowIfFailed(command_list->Close());

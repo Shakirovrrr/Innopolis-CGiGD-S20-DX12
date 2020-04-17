@@ -13,4 +13,6 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 		OutputDebugString(e.get_wstring());
 		return 1;
 	}
+
+	return 0;
 }
